@@ -79,6 +79,9 @@ func validateDesc(description *GazeDesc) error {
 			return err
 		}
 	}
+
+	// TODO: Positive retries
+
 	return nil
 }
 

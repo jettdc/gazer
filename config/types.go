@@ -15,7 +15,9 @@ type GazeDesc struct {
 	Command string `yaml:"cmd"`
 	//Watch         bool
 	//RestartPolicy uint8
-	ColorCode string `yaml:"color,omitempty" structs:"-"`
+	ColorCode        string `yaml:"color,omitempty" structs:"-"`
+	Retries          uint8  `yaml:"retries,omitempty" structs:"-"`
+	AttemptedRetries uint8  `yaml:"-" structs:"-"`
 }
 
 const (
