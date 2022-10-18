@@ -16,3 +16,23 @@ gaze-at:
     restart: <optional | always, retry>
     retries: <optional | int>
 ```
+
+Examaple
+```yaml
+shell:
+  exec: cmd
+  args:
+    - /C
+gaze-at:
+  - name: frontend
+    cmd: cd ./frontend && ng serve
+    color: blue
+    restart: always
+  - name: server
+    cmd: npm run start:dev --prefix ./backend/src
+    watch:
+      - ./backend/src
+      - ./backend/package.json
+    restart: retry
+    retries: 3
+```
