@@ -4,20 +4,21 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/jettdc/gazer/config"
-	"github.com/jettdc/gazer/out"
+	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 	"sync"
 	"time"
 )
 
-func ExecuteDescriptions(c config.Config) error {
+func ExecuteDescriptions(shellConfig *config.ShellConfig, descriptions *[]config.GazeDesc) error {
 	output := make(chan string, 8)
 	wg := sync.WaitGroup{}
-	wg.Add(len(*c.Descriptions))
+	wg.Add(len(*descriptions))
 
-	for i, _ := range *c.Descriptions {
-		go executeCommand(c.Shell.Executable, c.Shell.Arguments, &(*c.Descriptions)[i], output, &wg)
+	for i, _ := range *descriptions {
+		go executeCommand(shellConfig.Executable, shellConfig.Arguments, &(*descriptions)[i], output, &wg)
 	}
 
 	go func() {
@@ -53,32 +54,63 @@ func executeCommand(shell string, shellArgs []string, description *config.GazeDe
 		for {
 			select {
 			case value := <-stdout:
-				output <- out.ColorText(fmt.Sprintf("[%s] %s", description.Name, value), description.ColorCode)
+				output <- description.Output(value)
 			case value := <-stderr:
-				output <- out.ColorText(fmt.Sprintf("[%s | ERROR] %s", description.Name, value), description.ColorCode)
+				output <- description.ErrorOutput(value)
+			case <-description.Context.Done():
+				return
 			}
 		}
 
 	}()
 
+	// Pass process output to the channels
 	go reader(scanner, stdout)
 	go reader(errScanner, stderr)
 
-	if err := cmd.Run(); err != nil {
-		if description.AttemptedRetries < description.Retries {
-			output <- out.ColorText(fmt.Sprintf("[gazer] Attempting retry for %s...", description.Name), description.ColorCode)
+	cmd.Start()
+
+	c := make(chan os.Signal, 1)
+
+	manuallyKilled := false
+
+	go func() {
+		for {
+			select {
+			case s := <-c:
+				manuallyKilled = true
+				cmd.Process.Signal(s)
+			case <-description.Context.Done():
+				output <- description.AdminOutput(fmt.Sprintf("Cancel requested, killing %s", description.Name))
+				cmd.Process.Signal(os.Kill)
+				manuallyKilled = true
+				return
+			}
+		}
+	}()
+
+	// Pass along signals to cmd
+	signal.Notify(c, os.Interrupt, os.Kill)
+
+	if err := cmd.Wait(); err != nil {
+		if manuallyKilled { // Don't try to restart
+			output <- description.AdminOutput(fmt.Sprintf("Process %s manually killed.", description.Name))
+			wg.Done()
+		} else if description.Restart == "always" || (description.Restart == "retry" && description.AttemptedRetries < description.Retries) {
+			output <- description.AdminOutput(fmt.Sprintf("Attempting retry for %s...", description.Name))
 			description.AttemptedRetries += 1
 			go executeCommand(shell, shellArgs, description, output, wg)
 		} else {
-			output <- out.ColorText(fmt.Sprintf("[gazer] Max retries for %s exceeded. Exiting...", description.Name), description.ColorCode)
+			if description.Restart != "" {
+				output <- description.AdminOutput(fmt.Sprintf("Max retries for %s exceeded. Exiting...", description.Name))
+			}
 			wg.Done()
 		}
 	} else {
-		output <- out.ColorText(fmt.Sprintf("[gazer] Exiting %s...", description.Name), description.ColorCode)
-
+		output <- description.AdminOutput(fmt.Sprintf("Completed execution of %s", description.Name))
+		description.AttemptedRetries = 0 // Reset in case it crashes again
 		wg.Done()
 	}
-
 }
 
 func reader(scanner *bufio.Scanner, out chan string) {
