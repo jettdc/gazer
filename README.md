@@ -17,7 +17,7 @@ gaze-at:
     retries: <optional | int>
 ```
 
-Examaple
+Example
 ```yaml
 shell:
   exec: cmd
@@ -36,3 +36,7 @@ gaze-at:
     restart: retry
     retries: 3
 ```
+
+## Commands  
+- `rs <process name>`
+  - Restart a process with the given name
